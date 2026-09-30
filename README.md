@@ -361,6 +361,23 @@ writes one audit-trail line to each journal). Use it after
 fixing a config bug on one server to find which others
 carry the same bug, or as a periodic consistency check.
 
+### macOS cleanup
+
+Find leftovers of apps you removed, or uninstall an app
+with all its files:
+
+```
+ ❯ Clean up leftovers of old apps on this Mac
+ ❯ Uninstall Brave Browser completely
+```
+
+A read-only scanner matches `~/Library` and `/Library`
+against the installed apps, Team IDs and launchd jobs.
+Heinzel verifies each hit, groups them by app, and moves
+only what you approve to the Trash. The scanner needs the
+Command Line Tools (`xcode-select --install`). Without
+them, Heinzel falls back to manual probes.
+
 ### Email reports
 
 Send ad-hoc text or files by email about a managed server:

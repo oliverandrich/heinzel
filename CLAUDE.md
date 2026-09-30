@@ -428,6 +428,15 @@ after fixing a config bug on one server to find which
 others carry the same bug, or as a periodic consistency
 check across the fleet.
 
+## macOS Cleanup
+
+Only when the user asks. The `heinzel-macos-cleanup` skill
+in `.claude/skills/heinzel-macos-cleanup/` finds leftovers
+of uninstalled apps, or uninstalls one app with all its
+files. A read-only scanner classifies entries in
+`~/Library` and `/Library`. Removal moves only approved
+entries to the Trash.
+
 ## Programming Language Runtimes
 
 Use [mise](https://mise.jdx.dev) — see

@@ -61,3 +61,6 @@ HISTORY.md
 # reach a public repo. .claude/settings.json is the shared,
 # hostname-free half; this one stays local.
 .claude/settings.local.json
+
+# Python bytecode from the scanner tests
+__pycache__/
