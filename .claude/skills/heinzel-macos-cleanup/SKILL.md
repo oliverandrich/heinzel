@@ -52,6 +52,11 @@ heinzel first-connection pipeline still applies first.
        ssh <options> user@host /usr/bin/python3 - orphans \
          < .claude/skills/heinzel-macos-cleanup/scripts/scan.py
 
+   Log in as the user whose apps you clean up, never as root:
+   the scanner reads its own user's Library and refuses root.
+   Ask for the user if the server memory names none. `/Library`
+   entries need `sudo` at removal (`references/removal.md`).
+
    For the uninstall mode, pass `app "<name>"` instead of
    `orphans`. A name, bundle id or `.app` path works. Over SSH,
    the remote shell splits the arguments again, so quote twice:

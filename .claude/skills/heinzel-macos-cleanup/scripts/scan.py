@@ -609,6 +609,9 @@ def main() -> int:
 
     if sys.platform != "darwin":
         parser.error("macOS only")
+    if os.geteuid() == 0:
+        # root's home is /var/root, so the scan would miss the user's Library.
+        parser.error("run as the user whose apps to scan, not as root")
     inv = collect_inventory()
     if args.mode == "orphans":
         result = scan_orphans(inv, args.all)

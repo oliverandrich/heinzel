@@ -412,5 +412,18 @@ class AppMatches(unittest.TestCase):
         self.assertEqual(self.match("zoomer", {"us.zoom.xos"}, {"zo"}), "")
 
 
+class Main(unittest.TestCase):
+    def test_root_is_refused_before_scanning(self):
+        # As root, Path.home() is /var/root and the scan would look clean.
+        with mock.patch.object(scan.sys, "argv", ["scan.py", "orphans"]), \
+                mock.patch.object(scan.sys, "platform", "darwin"), \
+                mock.patch.object(scan.os, "geteuid", return_value=0), \
+                mock.patch.object(scan, "collect_inventory") as collect, \
+                mock.patch("sys.stderr"):
+            with self.assertRaises(SystemExit):
+                scan.main()
+        collect.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()
