@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.23.0 — 2026-10-01
+
+- **New skill: macOS cleanup.** It finds leftovers
+  of uninstalled apps in `~/Library` and
+  `/Library`, or everything one app left behind,
+  and moves only approved entries to the Trash. A
+  read-only scanner classifies them by bundle id,
+  Team ID and launchd program; every hit is
+  verified before heinzel proposes it. The scanner
+  refuses to run as root, whose Library is
+  `/var/root`. Contributed by Oliver Andrich (#50).
+
 ## 2.22.0 — 2026-09-19
 
 - **Native nftables counts as a firewall.** A
