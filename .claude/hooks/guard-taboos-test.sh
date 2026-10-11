@@ -792,6 +792,66 @@ if command -v jq >/dev/null 2>&1; then
   check_file deny Write file_path /dev/./sda x
   check_file deny Write file_path /dev//sda x
   check_file deny Write file_path /dev/x/../sda x
+  # Case folding is not ASCII-only: APFS folds the long s onto s
+  # and the Kelvin sign onto k, and HFS+ ignores a zero-width
+  # joiner altogether. Bytes are built here so that no editor
+  # normalizes them away.
+  LONGS=$(printf '\305\277')
+  KELVIN=$(printf '\342\204\252')
+  ZWJ=$(printf '\342\200\215')
+  UUML=$(printf '\303\274')
+  check_file deny Write file_path "/etc/ssh/${LONGS}shd_config" x
+  check_file deny Write file_path \
+    "/Users/a/.ssh/authorized_${KELVIN}eys" x
+  check_file deny Write file_path "/etc/ssh/sshd_${ZWJ}config" x
+  check_file deny Write file_path \
+    "/etc/ssh/.${ZWJ}/${LONGS}shd_config" x
+  check_file pass Write file_path \
+    "/home/alice/Notizen/${UUML}bersicht.md" x
+  # A relative target is resolved against the session's cwd, so it
+  # is judged there: the bare name sshd_config is a protected file
+  # in /etc/ssh and an ordinary one anywhere else.
+  rel_file() {
+    EXPECT=$1
+    OUT=$(jq -n --arg c "$2" --arg p "$3" \
+      '{cwd:$c,tool_name:"Write",tool_input:{file_path:$p}}' \
+      | env -u HEINZEL_GUARD_DISABLE sh "$HOOK" file)
+    if printf '%s' "$OUT" \
+      | grep -q '"permissionDecision":"deny"'; then
+      GOT=deny
+    else
+      GOT=pass
+    fi
+    if [ "$GOT" = "$EXPECT" ]; then
+      PASS=$((PASS + 1))
+    else
+      FAIL=$((FAIL + 1))
+      echo "FAIL [$EXPECT, got $GOT]: relative $3 in $2"
+    fi
+  }
+  rel_file deny /etc/ssh sshd_config
+  rel_file deny /etc sshd_extra
+  rel_file deny /etc/ssh ssh_host_ed25519_key
+  rel_file deny /home/alice/.ssh id_ed25519
+  rel_file deny /home/alice .ssh/id_ed25519
+  rel_file deny /etc/nginx ../ssh/sshd_config
+  rel_file deny /dev sda
+  rel_file pass /home/alice/heinzel memory/servers/h/memory.md
+  rel_file pass /home/alice/heinzel sshd_config
+  # No cwd in the input: the hook's own working directory counts.
+  RELDIR=$(mktemp -d)
+  mkdir "$RELDIR/.ssh"
+  OUT=$(jq -n '{tool_input:{file_path:"id_ed25519"}}' \
+    | (cd "$RELDIR/.ssh" \
+      && env -u HEINZEL_GUARD_DISABLE sh "$HOOK" file))
+  if printf '%s' "$OUT" \
+    | grep -q '"permissionDecision":"deny"'; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo "FAIL: relative key name passed without a cwd field"
+  fi
+  rm -rf "$RELDIR"
   # Both path keys at once: every one of them is judged, so a
   # harmless one cannot stand in front of a protected one.
   OUT=$(jq -n '{tool_name:"NotebookEdit",tool_input:{file_path:
@@ -863,6 +923,12 @@ if command -v jq >/dev/null 2>&1; then
     '{"tool_input":{"file_path":"/tmp/sshd_conf'"$BSL"'u0069g"}}'
   degraded_file deny \
     "$(file_json Write file_path /etc/ssh/./SSHD_config x)"
+  # A relative target cannot be resolved without a JSON parser.
+  degraded_file deny '{"tool_input":{"file_path":"sshd_config"}}'
+  degraded_file deny \
+    "$(file_json NotebookEdit notebook_path id_ed25519 x)"
+  degraded_file deny \
+    "$(file_json Write file_path "/etc/ssh/${LONGS}shd_config" x)"
   degraded_file pass "$(file_json Edit file_path /tmp/memory.md \
     'Last connected: 2026-02-25')"
   degraded_file pass \
