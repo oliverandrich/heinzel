@@ -774,6 +774,36 @@ if command -v jq >/dev/null 2>&1; then
   check_file deny Write file_path /tmp/../dev/nvme0n1 x
   check_file deny NotebookEdit notebook_path \
     /root/.ssh/authorized_keys x
+  # Another spelling of the same file. A filesystem that ignores
+  # case (macOS) opens it under any capitalization, and the kernel
+  # resolves //, /./ and x/../ before any pattern sees them.
+  check_file deny Write file_path /etc/ssh/SSHD_CONFIG x
+  check_file deny Write file_path /Users/a/.SSH/Authorized_Keys x
+  check_file deny Write file_path /Users/a/.ssh/ID_ed25519 x
+  check_file deny Write file_path /etc/ssh/./sshd_config x
+  check_file deny Write file_path /etc//ssh/sshd_config x
+  check_file deny Write file_path /etc/ssh/x/../sshd_config x
+  check_file deny Write file_path /etc/ssh/x/y/../../sshd_config x
+  check_file deny Write file_path /etc/ssh/sshd_config.d/./a.conf x
+  check_file deny Write file_path /home/a/.ssh/./id_ed25519 x
+  check_file deny Write file_path /home/a/.ssh//id_ed25519 x
+  check_file deny Write file_path /home/a/.ssh/x/../id_ed25519 x
+  check_file deny Write file_path /etc/ssh/./ssh_host_rsa_key x
+  check_file deny Write file_path /dev/./sda x
+  check_file deny Write file_path /dev//sda x
+  check_file deny Write file_path /dev/x/../sda x
+  # Both path keys at once: every one of them is judged, so a
+  # harmless one cannot stand in front of a protected one.
+  OUT=$(jq -n '{tool_name:"NotebookEdit",tool_input:{file_path:
+    "/tmp/a.ipynb",notebook_path:"/etc/ssh/sshd_config"}}' \
+    | env -u HEINZEL_GUARD_DISABLE sh "$HOOK" file)
+  if printf '%s' "$OUT" \
+    | grep -q '"permissionDecision":"deny"'; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo "FAIL: a second path key hid a protected target"
+  fi
   # The use case from PR #62: memory that NAMES the protected
   # paths and a few taboo commands is ordinary text.
   check_file pass Edit file_path \
@@ -822,6 +852,17 @@ if command -v jq >/dev/null 2>&1; then
   degraded_file deny "$(file_json Write file_path /dev/sda x)"
   degraded_file deny "$(file_json Edit file_path /tmp/memory.md \
     'sshd: /etc/ssh/sshd_config')"
+  # JSON may spell a slash or any character as an escape. Only a
+  # JSON parser can undo that, so without one it is unprovable.
+  degraded_file deny \
+    '{"tool_input":{"file_path":"\/etc\/ssh\/sshd_config"}}'
+  # The backslash is built at run time: an editor that decodes
+  # escapes on save would turn the fixture into the plain path.
+  BSL=$(printf '\134')
+  degraded_file deny \
+    '{"tool_input":{"file_path":"/tmp/sshd_conf'"$BSL"'u0069g"}}'
+  degraded_file deny \
+    "$(file_json Write file_path /etc/ssh/./SSHD_config x)"
   degraded_file pass "$(file_json Edit file_path /tmp/memory.md \
     'Last connected: 2026-02-25')"
   degraded_file pass \
@@ -835,7 +876,7 @@ fi
 # without the argument the guard would scan the written text as
 # a command line.
 for TOOL in Edit Write NotebookEdit; do
-  if grep -A8 "\"matcher\": *\"[A-Za-z|]*$TOOL[A-Za-z|]*\"" \
+  if grep -A8 "\"matcher\": *\"[A-Za-z|]*${TOOL}[A-Za-z|]*\"" \
       "$CLAUDE_DIR/settings.json" \
     | grep -q 'guard-taboos\.sh\\" file"'; then
     PASS=$((PASS + 1))

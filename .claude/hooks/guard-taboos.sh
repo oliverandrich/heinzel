@@ -405,9 +405,18 @@ deny() {
 # The quote anchors it in the degraded scan below, where the path
 # is still inside its JSON string.
 #
+# A path has more than one spelling, and the kernel resolves all
+# of them before the write: //, /./ and x/../ anywhere in it, and
+# on a filesystem that ignores case (macOS) any capitalization.
+# So the target is matched without regard to case, and both as
+# given and with those three forms folded away. Every path key in
+# the input is judged, not the first one found.
+#
 # When jq cannot name the target, the whole input is scanned
 # instead. That also blocks a note ABOUT a protected path, and it
-# must: an unproven target is a protected one.
+# must: an unproven target is a protected one. JSON can spell a
+# slash or any character as a backslash escape, which only a JSON
+# parser undoes, so such an escape is denied there as well.
 #
 # Boundary, left open: a symlink to a protected file under another
 # name, and any other tool that writes files (an MCP server). The
@@ -416,13 +425,27 @@ if [ "${1:-}" = "file" ]; then
   TARGET=""
   if command -v jq >/dev/null 2>&1; then
     TARGET=$(printf '%s' "$INPUT" | jq -r \
-      '.tool_input | (.file_path // .notebook_path // empty)' \
+      '.tool_input | (.file_path, .notebook_path) | select(. != null)' \
       2>/dev/null) || TARGET=""
   fi
-  [ -n "$TARGET" ] || TARGET="$INPUT"
+  if [ -z "$TARGET" ]; then
+    TARGET="$INPUT"
+    if printf '%s\n' "$TARGET" \
+      | grep -Eq '\\(/|u[0-9a-fA-F]{4})'; then
+      deny "the target of this file edit could not be read: jq is \
+missing or failed, and the path may be hidden behind a JSON escape"
+    fi
+  fi
+  FOLDED=$(printf '%s\n' "$TARGET" | sed -E -e 's#/+#/#g' \
+    -e ':a' -e 's#/\./#/#g' -e 'ta' \
+    -e ':b' -e 's#/[^/]+/\.\./#/#' -e 'tb' 2>/dev/null) || FOLDED=""
+  if [ -z "$FOLDED" ]; then
+    deny "the target path of this file edit could not be \
+normalised, so it cannot be shown to be an ordinary file"
+  fi
   FILEDEV="(^|\"|/\\.\\.?)/+${DEV#/}"
   target_hit() {
-    printf '%s\n' "$TARGET" | grep -Eq "$1"
+    printf '%s\n%s\n' "$TARGET" "$FOLDED" | grep -Eiq "$1"
   }
   if target_hit "$SSHD"; then
     deny "modifying sshd_config or a file merged into it is \
