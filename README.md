@@ -132,7 +132,8 @@ The safety rules are part of every session.
   `--dangerously-skip-permissions`: halt and poweroff,
   `mkfs`, partition-table writers, deleting or overwriting
   SSH keys, writes to `sshd_config`. It also catches them
-  inside `ssh host "…"` or behind `python3 -c`. Read-only
+  inside `ssh host "…"`, behind `python3 -c` and when the
+  file-edit tools target a key or `sshd_config`. Read-only
   forms (`fdisk -l`) stay allowed. For a legitimate exception
   such as an OS replacement, start the session with
   `HEINZEL_GUARD_DISABLE=1`. OpenCode does not run this hook;

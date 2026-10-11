@@ -1,5 +1,6 @@
 #!/bin/sh
-# guard-taboos.sh — PreToolUse hook (matcher: Bash).
+# guard-taboos.sh — PreToolUse hook (matcher: Bash, and
+# Edit|Write|NotebookEdit with the argument "file").
 #
 # Mechanically enforces heinzel's absolute taboos from
 # CLAUDE.md → Critical Safety Rules, below the model layer:
@@ -28,6 +29,8 @@
 #   - a redirect onto a $( ) lookup, or an arrow onto any
 #     expansion, whose target nobody sees before it runs
 #     (issue #51)
+#   - a file-edit tool pointed at sshd_config, a key file or a
+#     raw disk device (see the file-mode section)
 #
 # What it deliberately does NOT scan: the body of a heredoc that
 # is written to an ordinary file by cat or tee (issue #8). That
@@ -382,6 +385,82 @@ deny() {
   printf 'rephrase the command to evade the guard."}}\n'
   exit 0
 }
+
+# --- File-edit tools (file mode) ------------------------------
+# Edit, Write and NotebookEdit write a file with no command line
+# at all, so none of the rules below ever sees them: in local
+# mode Write could replace /etc/ssh/sshd_config or authorized_keys
+# unchallenged. settings.json registers those tools with the
+# argument "file", and the guard then judges the TARGET path
+# alone. The text being written is data and is not scanned, which
+# is what lets a memory file name every protected path
+# (rules/server-memory.md).
+#
+# Same set as the Bash rules: sshd's config, a key file, a raw
+# disk device. ~/.ssh/config and known_hosts stay editable, as
+# they are for tee and a redirect.
+#
+# The device pattern is anchored, unlike DEV: unanchored it would
+# deny every file under a directory called dev (~/dev/sdk/x.md).
+# The quote anchors it in the degraded scan below, where the path
+# is still inside its JSON string.
+#
+# A path has more than one spelling, and the kernel resolves all
+# of them before the write: //, /./ and x/../ anywhere in it, and
+# on a filesystem that ignores case (macOS) any capitalization.
+# So the target is matched without regard to case, and both as
+# given and with those three forms folded away. Every path key in
+# the input is judged, not the first one found.
+#
+# When jq cannot name the target, the whole input is scanned
+# instead. That also blocks a note ABOUT a protected path, and it
+# must: an unproven target is a protected one. JSON can spell a
+# slash or any character as a backslash escape, which only a JSON
+# parser undoes, so such an escape is denied there as well.
+#
+# Boundary, left open: a symlink to a protected file under another
+# name, and any other tool that writes files (an MCP server). The
+# set of writers cannot be closed from here.
+if [ "${1:-}" = "file" ]; then
+  TARGET=""
+  if command -v jq >/dev/null 2>&1; then
+    TARGET=$(printf '%s' "$INPUT" | jq -r \
+      '.tool_input | (.file_path, .notebook_path) | select(. != null)' \
+      2>/dev/null) || TARGET=""
+  fi
+  if [ -z "$TARGET" ]; then
+    TARGET="$INPUT"
+    if printf '%s\n' "$TARGET" \
+      | grep -Eq '\\(/|u[0-9a-fA-F]{4})'; then
+      deny "the target of this file edit could not be read: jq is \
+missing or failed, and the path may be hidden behind a JSON escape"
+    fi
+  fi
+  FOLDED=$(printf '%s\n' "$TARGET" | sed -E -e 's#/+#/#g' \
+    -e ':a' -e 's#/\./#/#g' -e 'ta' \
+    -e ':b' -e 's#/[^/]+/\.\./#/#' -e 'tb' 2>/dev/null) || FOLDED=""
+  if [ -z "$FOLDED" ]; then
+    deny "the target path of this file edit could not be \
+normalised, so it cannot be shown to be an ordinary file"
+  fi
+  FILEDEV="(^|\"|/\\.\\.?)/+${DEV#/}"
+  target_hit() {
+    printf '%s\n%s\n' "$TARGET" "$FOLDED" | grep -Eiq "$1"
+  }
+  if target_hit "$SSHD"; then
+    deny "modifying sshd_config or a file merged into it is \
+never allowed, with a file-edit tool as little as with a command"
+  fi
+  if target_hit "$KEYFILE"; then
+    deny "writing into an SSH key file replaces the keys there, \
+with a file-edit tool as much as with a command"
+  fi
+  if target_hit "$FILEDEV"; then
+    deny "writing onto a raw disk device overwrites its content \
+and partition table"
+  fi
+  exit 0
+fi
 
 # The model must not disarm the guard from inside a command.
 # Matches the assignment form only — merely mentioning the
