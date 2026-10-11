@@ -40,6 +40,16 @@
             "timeout": 5
           }
         ]
+      },
+      {
+        "matcher": "Edit|Write|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-taboos.sh\" file",
+            "timeout": 5
+          }
+        ]
       }
     ]
   }

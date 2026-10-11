@@ -731,6 +731,121 @@ check pass 'ls | tee >(wc -l) > list.txt'
 # count quote depth.
 check deny 'echo "editor -> $(readlink -f /usr/bin/editor)"'
 
+# --- file-edit tools (Edit, Write, NotebookEdit) ---------------
+# These tools write a file without any command line, so no rule
+# above ever sees them. In file mode the guard judges the TARGET
+# path alone. The text being written is data: a memory file may
+# name every taboo there is.
+file_json() {
+  # $1 tool name, $2 path key, $3 path, $4 text being written.
+  jq -n --arg t "$1" --arg k "$2" --arg p "$3" --arg c "$4" \
+    '{tool_name:$t,tool_input:{($k):$p,content:$c,new_string:$c}}'
+}
+
+check_file() {
+  EXPECT=$1
+  OUT=$(file_json "$2" "$3" "$4" "$5" \
+    | env -u HEINZEL_GUARD_DISABLE sh "$HOOK" file)
+  if printf '%s' "$OUT" \
+    | grep -q '"permissionDecision":"deny"'; then
+    GOT=deny
+  else
+    GOT=pass
+  fi
+  if [ "$GOT" = "$EXPECT" ]; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo "FAIL [$EXPECT, got $GOT]: $2 $4"
+  fi
+}
+
+if command -v jq >/dev/null 2>&1; then
+  check_file deny Write file_path /etc/ssh/sshd_config 'Port 22'
+  check_file deny Edit file_path /etc/ssh/sshd_config.d/10-x.conf x
+  check_file deny Edit file_path /usr/local/etc/ssh/sshd_config x
+  check_file deny Write file_path /etc/sshd_extra x
+  check_file deny Edit file_path /root/.ssh/authorized_keys x
+  check_file deny Write file_path /home/alice/.ssh/id_ed25519 x
+  check_file deny Write file_path /home/alice/.ssh/id_ed25519.pub x
+  check_file deny Write file_path /etc/ssh/ssh_host_ed25519_key x
+  check_file deny Write file_path /conf/sshd/ssh_host_rsa_key x
+  check_file deny Write file_path /dev/sda x
+  check_file deny Write file_path /tmp/../dev/nvme0n1 x
+  check_file deny NotebookEdit notebook_path \
+    /root/.ssh/authorized_keys x
+  # The use case from PR #62: memory that NAMES the protected
+  # paths and a few taboo commands is ordinary text.
+  check_file pass Edit file_path \
+    /home/alice/heinzel/memory/servers/h/memory.md \
+    'sshd: /etc/ssh/sshd_config, keys in /root/.ssh/authorized_keys'
+  check_file pass Write file_path \
+    /home/alice/heinzel/memory/servers/h/changelog.log \
+    'shutdown -h now was refused; mkfs.ext4 /dev/sda1 was not run'
+  # Same boundary as the Bash rules: the client config and
+  # known_hosts are not keys, ssh_config is not sshd_config.
+  check_file pass Edit file_path /home/alice/.ssh/config x
+  check_file pass Edit file_path /etc/ssh/ssh_config x
+  # A directory merely called dev is not the device tree.
+  check_file pass Write file_path /home/alice/dev/sdk/notes.md x
+  check_file pass Write file_path /home/alice/dev/data/x.md x
+  check_file pass Write file_path /dev/null x
+
+  # Degraded: when jq cannot name the target, the whole input is
+  # scanned for a protected path. A note about one is then blocked
+  # too, a write to one must never pass.
+  SHIM3=$(mktemp -d)
+  printf '#!/bin/sh\nexit 2\n' > "$SHIM3/jq"
+  chmod +x "$SHIM3/jq"
+  degraded_file() {
+    EXPECT=$1
+    OUT=$(printf '%s' "$2" \
+      | env -u HEINZEL_GUARD_DISABLE PATH="$SHIM3:$PATH" \
+        sh "$HOOK" file)
+    if printf '%s' "$OUT" \
+      | grep -q '"permissionDecision":"deny"'; then
+      GOT=deny
+    else
+      GOT=pass
+    fi
+    if [ "$GOT" = "$EXPECT" ]; then
+      PASS=$((PASS + 1))
+    else
+      FAIL=$((FAIL + 1))
+      echo "FAIL [$EXPECT, got $GOT] without jq: $2"
+    fi
+  }
+  degraded_file deny \
+    "$(file_json Write file_path /etc/ssh/sshd_config x)"
+  degraded_file deny \
+    "$(file_json Write file_path /root/.ssh/authorized_keys x)"
+  degraded_file deny "$(file_json Write file_path /dev/sda x)"
+  degraded_file deny "$(file_json Edit file_path /tmp/memory.md \
+    'sshd: /etc/ssh/sshd_config')"
+  degraded_file pass "$(file_json Edit file_path /tmp/memory.md \
+    'Last connected: 2026-02-25')"
+  degraded_file pass \
+    "$(file_json Write file_path /home/alice/dev/sdk/n.md x)"
+  rm -rf "$SHIM3"
+else
+  echo "SKIP: file-edit tool checks need jq to build fixtures"
+fi
+
+# Every file-edit tool must be registered, and in file mode:
+# without the argument the guard would scan the written text as
+# a command line.
+for TOOL in Edit Write NotebookEdit; do
+  if grep -A8 "\"matcher\": *\"[A-Za-z|]*$TOOL[A-Za-z|]*\"" \
+      "$CLAUDE_DIR/settings.json" \
+    | grep -q 'guard-taboos\.sh\\" file"'; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo "FAIL: settings.json does not run the guard in file" \
+      "mode for $TOOL"
+  fi
+done
+
 # --- no negated hit() may remain -------------------------------
 # A rule of the form  hit X && ! hit Y  evaluates Y against the
 # whole command string, so any unrelated flag disarms it (issue
@@ -750,7 +865,7 @@ fi
 # open (issue #2). Every hook command must resolve its
 # script via $CLAUDE_PROJECT_DIR.
 SETTINGS="$CLAUDE_DIR/settings.json"
-if grep -o '"command": *"[^"]*\.sh' "$SETTINGS" \
+if grep '"command":.*\.sh' "$SETTINGS" \
   | grep -v 'CLAUDE_PROJECT_DIR' >/dev/null; then
   FAIL=$((FAIL + 1))
   echo "FAIL: settings.json registers a hook script without" \
