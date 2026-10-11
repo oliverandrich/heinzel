@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.29.1 — 2026-10-11
+
+- **The guard's file mode knows two more spellings
+  of a path.** A relative target is resolved against
+  the session's working directory, so a bare
+  `sshd_config` written from inside `/etc/ssh` is
+  denied. On macOS the long s and the Kelvin sign
+  fold onto `s` and `k`, and such a name no longer
+  passes as a different file (#64).
+
 ## 2.29.0 — 2026-10-11
 
 - **The taboo guard covers the file-edit tools.** It
