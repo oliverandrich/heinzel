@@ -412,12 +412,18 @@ deny() {
 # given and with those three forms folded away. Every path key in
 # the input is judged, not the first one found.
 #
-# Case folding is not ASCII-only. APFS folds the long s (U+017F)
-# onto s and the Kelvin sign (U+212A) onto k, the only two
-# characters Unicode folds onto an ASCII letter, and HFS+ skips
-# zero-width characters when it compares names. Every protected
-# name is plain ASCII, so the target is also matched with those
-# two mapped and with every other non-ASCII byte removed.
+# Case folding is not ASCII-only, and APFS folds in full: the
+# long s and the Kelvin sign open s and k, a sharp s opens ss,
+# and the ligatures U+FB00 to U+FB06 open ff, fi, fl, ffi, ffl
+# and st (measured on APFS: [ -e ] on an fi ligature finds
+# config). The thirteen mapped below are every entry of
+# CaseFolding.txt, Unicode 18, that folds onto ASCII letters
+# alone, counted with a script and not from memory. The set is
+# NOT closed: U+1DF95 joined it late, so a newer Unicode needs a
+# recount. Every protected name is plain ASCII, so the target is
+# also matched with them spelled out, and with every other
+# non-ASCII byte removed, because HFS+ skips zero-width characters
+# when it compares names.
 #
 # A relative target is resolved against the session's cwd, which
 # the hook input carries: the bare name sshd_config is the
@@ -453,10 +459,23 @@ missing or failed, and the path is relative or may be hidden \
 behind a JSON escape"
     fi
   fi
-  LONGS=$(printf '\305\277')
-  KELVIN=$(printf '\342\204\252')
+  # U+FB00..FB06 share the prefix EF AC and differ in the last
+  # byte; the three-letter ligatures go first only for clarity.
+  LIG=$(printf '\357\254')
   MAPPED=$(printf '%s\n' "$TARGET" | LC_ALL=C sed \
-    -e "s/$LONGS/s/g" -e "s/$KELVIN/k/g" 2>/dev/null) || MAPPED=""
+    -e "s/$(printf '\305\277')/s/g" \
+    -e "s/$(printf '\342\204\252')/k/g" \
+    -e "s/$(printf '\303\237')/ss/g" \
+    -e "s/$(printf '\341\272\236')/ss/g" \
+    -e "s/$(printf '\360\235\276\225')/ss/g" \
+    -e "s/$(printf '\304\260')/i/g" \
+    -e "s/$LIG$(printf '\203')/ffi/g" \
+    -e "s/$LIG$(printf '\204')/ffl/g" \
+    -e "s/$LIG$(printf '\200')/ff/g" \
+    -e "s/$LIG$(printf '\201')/fi/g" \
+    -e "s/$LIG$(printf '\202')/fl/g" \
+    -e "s/$LIG$(printf '\205')/st/g" \
+    -e "s/$LIG$(printf '\206')/st/g" 2>/dev/null) || MAPPED=""
   ASCII=$(printf '%s\n' "$MAPPED" \
     | LC_ALL=C tr -d '\200-\377' 2>/dev/null) || ASCII=""
   FOLDED=$(printf '%s\n%s\n' "$MAPPED" "$ASCII" \

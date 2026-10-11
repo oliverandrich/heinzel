@@ -806,6 +806,28 @@ if command -v jq >/dev/null 2>&1; then
   check_file deny Write file_path "/etc/ssh/sshd_${ZWJ}config" x
   check_file deny Write file_path \
     "/etc/ssh/.${ZWJ}/${LONGS}shd_config" x
+  # APFS folds FULLY: a ligature or a sharp s opens the file whose
+  # name spells it out (measured on macOS, [ -e ] on an fi ligature
+  # finds config).
+  FI=$(printf '\357\254\201')
+  ST=$(printf '\357\254\206')
+  SZ=$(printf '\303\237')
+  CAPSZ=$(printf '\341\272\236')
+  FFL=$(printf '\357\254\204')
+  check_file deny Write file_path "/etc/ssh/sshd_con${FI}g" x
+  check_file deny Write file_path "/etc/${SZ}h/${SZ}hd_config" x
+  check_file deny Write file_path "/etc/${CAPSZ}h/sshd_config" x
+  check_file deny Write file_path \
+    "/etc/ssh/ssh_ho${ST}_ed25519_key" x
+  check_file deny Write file_path "/Users/a/.${SZ}h/id_ed25519" x
+  # The two remaining entries of the table: U+1DF95 and the
+  # dotted capital I.
+  check_file deny Write file_path \
+    "/etc/$(printf '\360\235\276\225')h/sshd_config" x
+  check_file deny Write file_path \
+    "/etc/ssh/sshd_conf$(printf '\304\260')g" x
+  check_file pass Write file_path "/home/alice/Stra${SZ}e.md" x
+  check_file pass Write file_path "/home/alice/wa${FFL}e.md" x
   check_file pass Write file_path \
     "/home/alice/Notizen/${UUML}bersicht.md" x
   # A relative target is resolved against the session's cwd, so it
