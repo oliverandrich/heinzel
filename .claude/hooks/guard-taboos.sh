@@ -412,11 +412,23 @@ deny() {
 # given and with those three forms folded away. Every path key in
 # the input is judged, not the first one found.
 #
+# Case folding is not ASCII-only. APFS folds the long s (U+017F)
+# onto s and the Kelvin sign (U+212A) onto k, the only two
+# characters Unicode folds onto an ASCII letter, and HFS+ skips
+# zero-width characters when it compares names. Every protected
+# name is plain ASCII, so the target is also matched with those
+# two mapped and with every other non-ASCII byte removed.
+#
+# A relative target is resolved against the session's cwd, which
+# the hook input carries: the bare name sshd_config is the
+# protected file in /etc/ssh and an ordinary one anywhere else.
+#
 # When jq cannot name the target, the whole input is scanned
 # instead. That also blocks a note ABOUT a protected path, and it
 # must: an unproven target is a protected one. JSON can spell a
 # slash or any character as a backslash escape, which only a JSON
-# parser undoes, so such an escape is denied there as well.
+# parser undoes, so such an escape is denied there as well, and
+# so is a relative target, which cannot be resolved.
 #
 # Boundary, left open: a symlink to a protected file under another
 # name, and any other tool that writes files (an MCP server). The
@@ -424,28 +436,41 @@ deny() {
 if [ "${1:-}" = "file" ]; then
   TARGET=""
   if command -v jq >/dev/null 2>&1; then
-    TARGET=$(printf '%s' "$INPUT" | jq -r \
-      '.tool_input | (.file_path, .notebook_path) | select(. != null)' \
+    TARGET=$(printf '%s' "$INPUT" | jq -r --arg pwd "$PWD" '
+      ((.cwd // $pwd) | tostring) as $c
+      | .tool_input | (.file_path, .notebook_path)
+      | select(. != null) | tostring
+      | if startswith("/") then . else $c + "/" + . end' \
       2>/dev/null) || TARGET=""
   fi
   if [ -z "$TARGET" ]; then
     TARGET="$INPUT"
-    if printf '%s\n' "$TARGET" \
-      | grep -Eq '\\(/|u[0-9a-fA-F]{4})'; then
+    if printf '%s\n' "$TARGET" | LC_ALL=C grep -Eq \
+      '\\(/|u[0-9a-fA-F]{4})|"(file|notebook)_path"[[:space:]]*:[[:space:]]*"[^/]'
+    then
       deny "the target of this file edit could not be read: jq is \
-missing or failed, and the path may be hidden behind a JSON escape"
+missing or failed, and the path is relative or may be hidden \
+behind a JSON escape"
     fi
   fi
-  FOLDED=$(printf '%s\n' "$TARGET" | sed -E -e 's#/+#/#g' \
-    -e ':a' -e 's#/\./#/#g' -e 'ta' \
-    -e ':b' -e 's#/[^/]+/\.\./#/#' -e 'tb' 2>/dev/null) || FOLDED=""
-  if [ -z "$FOLDED" ]; then
+  LONGS=$(printf '\305\277')
+  KELVIN=$(printf '\342\204\252')
+  MAPPED=$(printf '%s\n' "$TARGET" | LC_ALL=C sed \
+    -e "s/$LONGS/s/g" -e "s/$KELVIN/k/g" 2>/dev/null) || MAPPED=""
+  ASCII=$(printf '%s\n' "$MAPPED" \
+    | LC_ALL=C tr -d '\200-\377' 2>/dev/null) || ASCII=""
+  FOLDED=$(printf '%s\n%s\n' "$MAPPED" "$ASCII" \
+    | LC_ALL=C sed -E -e 's#/+#/#g' \
+      -e ':a' -e 's#/\./#/#g' -e 'ta' \
+      -e ':b' -e 's#/[^/]+/\.\./#/#' -e 'tb' 2>/dev/null) || FOLDED=""
+  if [ -z "$MAPPED" ] || [ -z "$ASCII" ] || [ -z "$FOLDED" ]; then
     deny "the target path of this file edit could not be \
 normalised, so it cannot be shown to be an ordinary file"
   fi
   FILEDEV="(^|\"|/\\.\\.?)/+${DEV#/}"
   target_hit() {
-    printf '%s\n%s\n' "$TARGET" "$FOLDED" | grep -Eiq "$1"
+    printf '%s\n%s\n%s\n%s\n' "$TARGET" "$MAPPED" "$ASCII" "$FOLDED" \
+      | LC_ALL=C grep -Eiq "$1"
   }
   if target_hit "$SSHD"; then
     deny "modifying sshd_config or a file merged into it is \
