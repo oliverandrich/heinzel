@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.29.2 — 2026-10-11
+
+- **The guard's file mode folds names the way macOS
+  does.** 2.29.1 mapped the long s and the Kelvin
+  sign only. APFS folds in full, so a name with an
+  fi ligature or a sharp s opened `sshd_config` past
+  the guard. All 13 characters that Unicode 18 folds
+  onto ASCII letters are now spelled out before the
+  match (#65).
+
 ## 2.29.1 — 2026-10-11
 
 - **The guard's file mode knows two more spellings
