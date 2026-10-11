@@ -1,5 +1,22 @@
 # Changelog
 
+## 2.29.0 — 2026-10-11
+
+- **The taboo guard covers the file-edit tools.** It
+  hooked `Bash` only, so in local mode `Edit` or
+  `Write` could replace `sshd_config` or
+  `authorized_keys` unchallenged. Both, and
+  `NotebookEdit`, are now denied when their target
+  is sshd's config, an SSH key file or a raw disk
+  device. Only the target path is judged, never the
+  text being written.
+- **Memory files are edited with the file-edit
+  tool.** Server memory names key paths and
+  `/etc/ssh/sshd_config`, and the guard blocks
+  `sed -i` or an interpreter that carries them on
+  its command line. `rules/server-memory.md` now
+  says so. Contributed by Oliver Andrich (#62).
+
 ## 2.28.1 — 2026-10-10
 
 - **The README opens with a trailer and is less
